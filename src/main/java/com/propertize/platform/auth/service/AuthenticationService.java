@@ -21,7 +21,6 @@ public class AuthenticationService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
-    private final TokenBlacklistService tokenBlacklistService;
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
@@ -69,7 +68,9 @@ public class AuthenticationService {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .organizationId(user.getOrganizationId())
-                .roles(user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet()))
+                .roles(user.getRoles() != null
+                        ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
+                        : java.util.Collections.emptySet())
                 .build();
     }
 }

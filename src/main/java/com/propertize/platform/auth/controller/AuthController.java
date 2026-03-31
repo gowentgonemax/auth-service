@@ -2,6 +2,7 @@ package com.propertize.platform.auth.controller;
 
 import com.propertize.platform.auth.dto.*;
 import com.propertize.platform.auth.entity.User;
+import com.propertize.platform.auth.repository.UserCustomRoleAssignmentRepository;
 import com.propertize.platform.auth.repository.UserRepository;
 import com.propertize.platform.auth.security.JwtTokenProvider;
 import com.propertize.platform.auth.service.*;
@@ -43,6 +44,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
+    private final UserCustomRoleAssignmentRepository userCustomRoleAssignmentRepository;
     private final PasswordResetService passwordResetService;
     private final RateLimitService rateLimitService;
     private final SessionManagementService sessionService;
@@ -139,6 +141,18 @@ public class AuthController {
                     .flatMap(role -> rbacService.getBasePermissionsForRole(role).stream())
                     .collect(Collectors.toSet());
 
+            // Add permissions from any custom roles assigned to this user (Phase 3)
+            try {
+                userCustomRoleAssignmentRepository
+                        .findByUserIdAndIsActiveTrueWithRole(user.getId())
+                        .forEach(assignment -> {
+                            roles.add(assignment.getRbacRole().getRoleName());
+                            permissions.addAll(assignment.getRbacRole().getPermissionSet());
+                        });
+            } catch (Exception ex) {
+                log.warn("⚠️ Could not load custom role assignments for {}: {}", username, ex.getMessage());
+            }
+
             log.info("📋 Collected {} base permissions for JWT token (user: {})", permissions.size(), username);
 
             // Generate tokens
@@ -199,7 +213,8 @@ public class AuthController {
             }
 
             User user = userOpt.get();
-            Set<String> roles = user.getRoles().stream()
+            Set<String> roles = (user.getRoles() != null ? user.getRoles()
+                    : java.util.Collections.<com.propertize.enums.UserRoleEnum>emptySet()).stream()
                     .map(role -> role.name())
                     .collect(Collectors.toSet());
 
@@ -214,6 +229,18 @@ public class AuthController {
             Set<String> permissions = roles.stream()
                     .flatMap(role -> rbacService.getBasePermissionsForRole(role).stream())
                     .collect(Collectors.toSet());
+
+            // Add custom role permissions (Phase 3)
+            try {
+                userCustomRoleAssignmentRepository
+                        .findByUserIdAndIsActiveTrueWithRole(user.getId())
+                        .forEach(assignment -> {
+                            roles.add(assignment.getRbacRole().getRoleName());
+                            permissions.addAll(assignment.getRbacRole().getPermissionSet());
+                        });
+            } catch (Exception ex) {
+                log.warn("⚠️ Could not load custom role assignments for {}: {}", username, ex.getMessage());
+            }
 
             String newAccessToken = jwtTokenProvider.generateAccessTokenWithPermissions(
                     username, roles, organizationId,
@@ -429,7 +456,8 @@ public class AuthController {
             }
 
             User user = userOpt.get();
-            Set<String> roles = user.getRoles().stream()
+            Set<String> roles = (user.getRoles() != null ? user.getRoles()
+                    : java.util.Collections.<com.propertize.enums.UserRoleEnum>emptySet()).stream()
                     .map(Enum::name)
                     .collect(Collectors.toSet());
 
@@ -508,7 +536,9 @@ public class AuthController {
             log.info("✅ PUT /api/v1/auth/me — updated profile for user: {}", username);
 
             // Return updated profile
-            Set<String> roles = user.getRoles().stream().map(Enum::name).collect(Collectors.toSet());
+            Set<String> roles = (user.getRoles() != null ? user.getRoles()
+                    : java.util.Collections.<com.propertize.enums.UserRoleEnum>emptySet()).stream()
+                    .map(Enum::name).collect(Collectors.toSet());
             Map<String, Object> profile = new HashMap<>();
             profile.put("id", user.getId());
             profile.put("username", user.getUsername());
@@ -563,7 +593,8 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
 
-            Set<String> roles = user.getRoles().stream()
+            Set<String> roles = (user.getRoles() != null ? user.getRoles()
+                    : java.util.Collections.<com.propertize.enums.UserRoleEnum>emptySet()).stream()
                     .map(Enum::name)
                     .collect(Collectors.toSet());
 

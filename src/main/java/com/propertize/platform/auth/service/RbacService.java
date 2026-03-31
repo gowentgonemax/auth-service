@@ -1,8 +1,11 @@
 package com.propertize.platform.auth.service;
 
 import com.propertize.platform.auth.config.RbacConfig;
+import com.propertize.platform.auth.entity.RbacRole;
+import com.propertize.platform.auth.repository.RbacRoleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -26,7 +29,15 @@ public class RbacService {
     private final RbacConfig rbacConfig;
 
     /**
-     * Get BASE permissions for a role (only those defined in rbac.yml, no expansion).
+     * Injected after construction (optional to avoid circular dep during startup).
+     * Used to check system roles from the DB-backed catalog.
+     */
+    @Autowired(required = false)
+    private RbacRoleRepository rbacRoleRepository;
+
+    /**
+     * Get BASE permissions for a role (only those defined in rbac.yml, no
+     * expansion).
      * Use this for JWT token storage to keep token size small.
      */
     public Set<String> getBasePermissionsForRole(String role) {
@@ -156,6 +167,17 @@ public class RbacService {
         if (rbacConfig.getRoles() == null)
             return Collections.emptySet();
         return rbacConfig.getRoles().keySet();
+    }
+
+    /**
+     * Returns all system roles from the DB catalog ({@code rbac_roles} where
+     * {@code is_system=true}), falling back to YAML keys if the repository is
+     * not yet available.
+     */
+    public List<RbacRole> getSystemRolesFromDb() {
+        if (rbacRoleRepository == null)
+            return Collections.emptyList();
+        return rbacRoleRepository.findByIsSystemTrueAndIsActiveTrue();
     }
 
     /**

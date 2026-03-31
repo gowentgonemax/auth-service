@@ -2,8 +2,12 @@ package com.propertize.platform.auth.service;
 
 import com.propertize.platform.auth.dto.CustomRoleRequest;
 import com.propertize.platform.auth.entity.CustomRole;
+import com.propertize.platform.auth.entity.RbacRole;
 import com.propertize.platform.auth.entity.User;
+import com.propertize.platform.auth.entity.UserCustomRoleAssignment;
 import com.propertize.platform.auth.repository.CustomRoleRepository;
+import com.propertize.platform.auth.repository.RbacRoleRepository;
+import com.propertize.platform.auth.repository.UserCustomRoleAssignmentRepository;
 import com.propertize.platform.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +50,8 @@ public class CustomRoleService {
     private final CustomRoleRepository customRoleRepository;
     private final UserRepository userRepository;
     private final RbacService rbacService;
+    private final RbacRoleRepository rbacRoleRepository;
+    private final UserCustomRoleAssignmentRepository userCustomRoleAssignmentRepository;
 
     /**
      * Create a new custom role for an organization.
@@ -134,6 +140,10 @@ public class CustomRoleService {
         CustomRole saved = customRoleRepository.save(customRole);
         log.info("Custom role '{}' created with id={} for org {}",
                 saved.getRoleName(), saved.getId(), saved.getOrganizationId());
+
+        // Mirror to rbac_roles for unified role catalog + JWT permission lookup
+        mirrorToRbacRoles(saved, creatorUserId);
+
         return saved;
     }
 
@@ -221,6 +231,18 @@ public class CustomRoleService {
 
         CustomRole updated = customRoleRepository.save(existing);
         log.info("Custom role '{}' (id={}) updated successfully", updated.getRoleName(), updated.getId());
+
+        // Keep rbac_roles in sync
+        rbacRoleRepository.findByRoleNameAndOrganizationIdAndIsActiveTrue(
+                updated.getRoleName(), updated.getOrganizationId()).ifPresent(dbRole -> {
+                    dbRole.setDisplayName(updated.getDisplayName());
+                    dbRole.setDescription(updated.getDescription());
+                    dbRole.setPermissions(updated.getPermissions());
+                    dbRole.setInheritsFrom(updated.getInheritsFrom());
+                    dbRole.setUpdatedAt(java.time.LocalDateTime.now());
+                    rbacRoleRepository.save(dbRole);
+                });
+
         return updated;
     }
 
@@ -250,6 +272,14 @@ public class CustomRoleService {
         existing.setActive(false);
         customRoleRepository.save(existing);
         log.info("Custom role '{}' (id={}) soft-deleted", existing.getRoleName(), id);
+
+        // Soft-delete mirror in rbac_roles
+        rbacRoleRepository.findByRoleNameAndOrganizationIdAndIsActiveTrue(
+                existing.getRoleName(), existing.getOrganizationId()).ifPresent(dbRole -> {
+                    dbRole.setActive(false);
+                    dbRole.setUpdatedAt(java.time.LocalDateTime.now());
+                    rbacRoleRepository.save(dbRole);
+                });
     }
 
     /**
@@ -317,8 +347,128 @@ public class CustomRoleService {
     }
 
     // ========================================================================
+    // Assignment Methods (Phase 3)
+    // ========================================================================
+
+    /**
+     * Assign a custom role to a user.
+     *
+     * @param roleId         the {@code rbac_roles} ID of the custom role
+     * @param targetUserId   numeric ID of the user receiving the role
+     * @param orgId          the organisation context
+     * @param assignerUserId numeric ID of the user performing the assignment
+     * @return the created assignment record
+     * @throws IllegalArgumentException if the role is not found or the assignment
+     *                                  already exists
+     */
+    @Transactional
+    public UserCustomRoleAssignment assignCustomRole(Long roleId, Long targetUserId, Long orgId, Long assignerUserId) {
+        log.info("Assigning custom role id={} to user {} in org {} by {}",
+                roleId, targetUserId, orgId, assignerUserId);
+
+        RbacRole role = rbacRoleRepository.findById(roleId)
+                .filter(RbacRole::isActive)
+                .orElseThrow(() -> new IllegalArgumentException("Custom role not found: " + roleId));
+
+        if (role.isSystem()) {
+            throw new IllegalArgumentException("System roles cannot be assigned via this endpoint");
+        }
+
+        if (userCustomRoleAssignmentRepository.existsByUserIdAndRbacRoleIdAndIsActiveTrue(targetUserId, roleId)) {
+            throw new IllegalArgumentException(
+                    "User " + targetUserId + " already has role " + role.getRoleName());
+        }
+
+        UserCustomRoleAssignment assignment = UserCustomRoleAssignment.builder()
+                .userId(targetUserId)
+                .rbacRole(role)
+                .organizationId(orgId)
+                .assignedBy(assignerUserId)
+                .isActive(true)
+                .build();
+
+        return userCustomRoleAssignmentRepository.save(assignment);
+    }
+
+    /**
+     * Revoke a custom role assignment from a user (soft-delete).
+     *
+     * @param roleId       the {@code rbac_roles} ID of the custom role
+     * @param targetUserId numeric ID of the user whose role is being revoked
+     */
+    @Transactional
+    public void unassignCustomRole(Long roleId, Long targetUserId) {
+        log.info("Unassigning custom role id={} from user {}", roleId, targetUserId);
+
+        UserCustomRoleAssignment assignment = userCustomRoleAssignmentRepository
+                .findByUserIdAndRbacRoleIdAndIsActiveTrue(targetUserId, roleId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Assignment not found for user " + targetUserId + " / role " + roleId));
+
+        assignment.setActive(false);
+        userCustomRoleAssignmentRepository.save(assignment);
+        log.info("Custom role id={} revoked from user {}", roleId, targetUserId);
+    }
+
+    /**
+     * Get all active custom role assignments for a user.
+     *
+     * @param userId numeric user ID
+     * @return list of assignments (with role eagerly loaded)
+     */
+    @Transactional(readOnly = true)
+    public List<UserCustomRoleAssignment> getAssignmentsForUser(Long userId) {
+        return userCustomRoleAssignmentRepository.findByUserIdAndIsActiveTrueWithRole(userId);
+    }
+
+    /**
+     * Get all active custom roles defined for an organisation (from
+     * {@code rbac_roles}).
+     *
+     * @param organizationId the organisation ID
+     * @return list of roles
+     */
+    @Transactional(readOnly = true)
+    public List<RbacRole> getOrgRolesFromCatalog(Long organizationId) {
+        return rbacRoleRepository.findByOrganizationIdAndIsActiveTrue(organizationId);
+    }
+
+    // ========================================================================
     // Internal Helpers
     // ========================================================================
+
+    /**
+     * Mirror a newly-created custom role to the unified {@code rbac_roles} catalog.
+     */
+    private void mirrorToRbacRoles(CustomRole customRole, Long creatorUserId) {
+        try {
+            // Only mirror if not already in rbac_roles
+            if (rbacRoleRepository.existsByRoleNameAndOrganizationIdAndIsActiveTrue(
+                    customRole.getRoleName(), customRole.getOrganizationId())) {
+                return;
+            }
+            RbacRole rbacRole = RbacRole.builder()
+                    .roleName(customRole.getRoleName())
+                    .displayName(customRole.getDisplayName())
+                    .description(customRole.getDescription())
+                    .scope("organization")
+                    .level(customRole.getMaxLevel())
+                    .category("custom")
+                    .permissions(customRole.getPermissions())
+                    .inheritsFrom(customRole.getInheritsFrom())
+                    .isSystem(false)
+                    .organizationId(customRole.getOrganizationId())
+                    .isActive(true)
+                    .createdBy(creatorUserId)
+                    .createdAt(java.time.LocalDateTime.now())
+                    .build();
+            rbacRoleRepository.save(rbacRole);
+            log.debug("Mirrored custom role '{}' to rbac_roles", customRole.getRoleName());
+        } catch (Exception ex) {
+            log.warn("Could not mirror custom role '{}' to rbac_roles: {}",
+                    customRole.getRoleName(), ex.getMessage());
+        }
+    }
 
     /**
      * Resolve effective permissions for a CustomRole entity (inherited + direct).
@@ -351,10 +501,12 @@ public class CustomRoleService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
 
         Set<String> allPermissions = new LinkedHashSet<>();
-        user.getRoles().forEach(roleEnum -> {
-            String roleName = roleEnum.name();
-            allPermissions.addAll(rbacService.getPermissionsForRole(roleName));
-        });
+        if (user.getRoles() != null) {
+            user.getRoles().forEach(roleEnum -> {
+                String roleName = roleEnum.name();
+                allPermissions.addAll(rbacService.getPermissionsForRole(roleName));
+            });
+        }
 
         return allPermissions;
     }
@@ -372,7 +524,8 @@ public class CustomRoleService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
 
-        return user.getRoles().stream()
+        return (user.getRoles() != null ? user.getRoles()
+                : java.util.Collections.<com.propertize.enums.UserRoleEnum>emptySet()).stream()
                 .map(roleEnum -> {
                     var config = rbacService.getRoleConfig(roleEnum.name());
                     if (config != null && config.getLevel() != null) {

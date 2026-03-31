@@ -54,7 +54,7 @@ public class PasswordResetService {
 
             // TODO: Send email via email service
             String resetLink = frontendUrl + resetPasswordPath + "?token=" + token;
-            log.info("Password reset link for {}: {}", email, resetLink);
+            log.info("Password reset link generated for user: {}", email);
         });
 
         if (userOpt.isEmpty()) {
