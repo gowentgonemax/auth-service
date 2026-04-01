@@ -2,10 +2,12 @@ package com.propertize.platform.auth.repository;
 
 import com.propertize.platform.auth.entity.UserCustomRoleAssignment;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,4 +27,13 @@ public interface UserCustomRoleAssignmentRepository extends JpaRepository<UserCu
     Optional<UserCustomRoleAssignment> findByUserIdAndRbacRoleIdAndIsActiveTrue(Long userId, Long rbacRoleId);
 
     boolean existsByUserIdAndRbacRoleIdAndIsActiveTrue(Long userId, Long rbacRoleId);
+
+    /**
+     * Bulk-deactivates all custom role assignments whose TTL has lapsed.
+     * Called by the nightly expiry sweep in CustomRoleService.
+     */
+    @Modifying
+    @Query("UPDATE UserCustomRoleAssignment a SET a.isActive = false " +
+            "WHERE a.isActive = true AND a.expiresAt IS NOT NULL AND a.expiresAt < :now")
+    int deactivateExpiredAssignments(@Param("now") LocalDateTime now);
 }

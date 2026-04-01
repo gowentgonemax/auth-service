@@ -82,6 +82,21 @@ public class RbacRole {
     private String inheritsFrom;
 
     /**
+     * Comma-separated list of org-type names this role is designed for
+     * (e.g. "INDIVIDUAL_PROPERTY_OWNER,REAL_ESTATE_INVESTOR").
+     * Advisory only — not enforced at DB level.
+     */
+    @Column(name = "applicable_org_types", length = 500)
+    private String applicableOrgTypes;
+
+    /**
+     * Comma-separated list of permissions explicitly denied for this role,
+     * even if inherited from a parent or group.
+     */
+    @Column(name = "explicit_denials", columnDefinition = "TEXT")
+    private String explicitDenials;
+
+    /**
      * {@code true} for roles seeded from rbac.yml; {@code false} for runtime
      * custom roles. System roles cannot be deleted.
      */

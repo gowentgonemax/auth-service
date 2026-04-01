@@ -39,6 +39,7 @@ rbac:
           "ORGANIZATION_UPDATE",
           "ORGANIZATION_DELETE",
           "ORGANIZATION_LIST",
+          "ORGANIZATION_LIST_ALL",
           "ORGANIZATION_CONFIGURE",
         ]
 
@@ -293,6 +294,7 @@ rbac:
         # === Organization (READ-ONLY) ===
         - "ORGANIZATION_READ"
         - "ORGANIZATION_LIST"
+        - "ORGANIZATION_LIST_ALL"
 
         # === Properties (READ-ONLY) ===
         - "PROPERTY_READ"
@@ -404,6 +406,8 @@ rbac:
         - "PAYROLL_DELETE"
         - "PAYROLL_PROCESS"
         - "PAYROLL_APPROVE"
+
+      bypass_all_checks: true
 
       capabilities:
         emergencyAccess: true
@@ -908,6 +912,301 @@ rbac:
         - "LEASE_READ"
         - "DOCUMENT_UPLOAD"
         - "DOCUMENT_READ"
+
+    # ==========================================================================
+    # ORG-TYPE-SPECIFIC ROLES
+    # These roles are only meaningful in the context of the indicated org types.
+    # applicableOrgTypes is advisory — the seeder uses it for auto-assignment.
+    # ==========================================================================
+
+    # ---------- IPO: Individual Property Owner ----------
+
+    SOLO_OWNER:
+      description: "Simplified owner role for individual landlords (1-3 properties, no staff)"
+      level: 870
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["INDIVIDUAL_PROPERTY_OWNER"]
+      permissions:
+        - "ORGANIZATION_READ"
+        - "ORGANIZATION_UPDATE"
+        - "PROPERTY_MANAGE"
+        - "LEASE_MANAGE"
+        - "TENANT_MANAGE"
+        - "PAYMENT_READ"
+        - "PAYMENT_LIST"
+        - "MAINTENANCE_MANAGE"
+        - "INVOICE_READ"
+        - "INVOICE_LIST"
+        - "REPORT_READ"
+        - "REPORT_GENERATE"
+        - "DASHBOARD_READ"
+        - "DASHBOARD_VIEW"
+        - "DOCUMENT_MANAGE"
+        - "NOTIFICATION_READ"
+        - "VENDOR_MANAGE"
+        - "TASK_MANAGE"
+      explicitDenials:
+        - "EMPLOYEE_CREATE"
+        - "EMPLOYEE_UPDATE"
+        - "EMPLOYEE_DELETE"
+        - "EMPLOYEE_MANAGE"
+        - "PAYROLL_CREATE"
+        - "PAYROLL_UPDATE"
+        - "PAYROLL_DELETE"
+        - "PAYROLL_PROCESS"
+        - "PAYROLL_APPROVE"
+        - "PAYROLL_MANAGE"
+        - "USER_CREATE"
+        - "USER_DELETE"
+        - "USER_MANAGE"
+
+    # ---------- REI: Real Estate Investor ----------
+
+    PORTFOLIO_ANALYST:
+      description: "Investment portfolio analyst — analytics, ROI, market analysis (REI/CORP)"
+      level: 750
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["REAL_ESTATE_INVESTOR", "CORPORATE"]
+      permissions:
+        - "PROPERTY_READ"
+        - "PROPERTY_LIST"
+        - "LEASE_READ"
+        - "LEASE_LIST"
+        - "PAYMENT_READ"
+        - "PAYMENT_LIST"
+        - "REPORT_READ"
+        - "REPORT_GENERATE"
+        - "REPORT_EXPORT"
+        - "DASHBOARD_VIEW"
+        - "DASHBOARD_READ"
+        - "DOCUMENT_READ"
+      explicitDenials:
+        - "EMPLOYEE_MANAGE"
+        - "PAYROLL_MANAGE"
+        - "TENANT_CREATE"
+        - "TENANT_UPDATE"
+        - "TENANT_DELETE"
+
+    INVESTOR_RELATIONS:
+      description: "Investor relations manager — owner/investor reporting and communication (REI/CORP)"
+      level: 730
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["REAL_ESTATE_INVESTOR", "CORPORATE"]
+      permissions:
+        - "PROPERTY_READ"
+        - "PROPERTY_LIST"
+        - "REPORT_READ"
+        - "REPORT_GENERATE"
+        - "REPORT_EXPORT"
+        - "PAYMENT_READ"
+        - "PAYMENT_LIST"
+        - "DASHBOARD_VIEW"
+        - "DOCUMENT_READ"
+        - "NOTIFICATION_READ"
+      explicitDenials:
+        - "EMPLOYEE_MANAGE"
+        - "PAYROLL_MANAGE"
+
+    # ---------- HA: Housing Association ----------
+
+    HOA_DIRECTOR:
+      description: "HOA board chair / director — governance, finance, and community management"
+      level: 890
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["HOUSING_ASSOCIATION"]
+      permissions:
+        - "ORGANIZATION_READ"
+        - "ORGANIZATION_UPDATE"
+        - "ORGANIZATION_CONFIGURE"
+        - "USER_MANAGE"
+        - "PROPERTY_MANAGE"
+        - "LEASE_MANAGE"
+        - "TENANT_MANAGE"
+        - "PAYMENT_MANAGE"
+        - "MAINTENANCE_MANAGE"
+        - "INVOICE_MANAGE"
+        - "EMPLOYEE_MANAGE"
+        - "PAYROLL_READ"
+        - "PAYROLL_LIST"
+        - "REPORT_GENERATE"
+        - "REPORT_READ"
+        - "REPORT_EXPORT"
+        - "DASHBOARD_READ"
+        - "DASHBOARD_VIEW"
+        - "DOCUMENT_MANAGE"
+        - "AUDIT_LOG_READ"
+        - "VENDOR_MANAGE"
+        - "TASK_MANAGE"
+        - "NOTIFICATION_READ"
+
+    BOARD_MEMBER:
+      description: "HOA board member — governance read-access and voting"
+      level: 600
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["HOUSING_ASSOCIATION"]
+      permissions:
+        - "PROPERTY_READ"
+        - "PROPERTY_LIST"
+        - "LEASE_READ"
+        - "LEASE_LIST"
+        - "PAYMENT_READ"
+        - "PAYMENT_LIST"
+        - "MAINTENANCE_READ"
+        - "MAINTENANCE_LIST"
+        - "REPORT_READ"
+        - "DASHBOARD_VIEW"
+        - "DOCUMENT_READ"
+        - "NOTIFICATION_READ"
+      restrictions:
+        readOnly: true
+
+    COMMUNITY_MANAGER:
+      description: "Community / social housing manager — resident welfare and social programs (HA)"
+      level: 650
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["HOUSING_ASSOCIATION"]
+      permissions:
+        - "TENANT_READ"
+        - "TENANT_LIST"
+        - "TENANT_COMMUNICATE"
+        - "PROPERTY_READ"
+        - "PROPERTY_LIST"
+        - "LEASE_READ"
+        - "LEASE_LIST"
+        - "MAINTENANCE_READ"
+        - "MAINTENANCE_LIST"
+        - "DOCUMENT_READ"
+        - "TASK_MANAGE"
+        - "NOTIFICATION_READ"
+        - "REPORT_READ"
+        - "DASHBOARD_VIEW"
+      explicitDenials:
+        - "PAYMENT_CREATE"
+        - "PAYROLL_MANAGE"
+
+    CASE_WORKER:
+      description: "Case worker — manages individual resident support cases (HA social housing)"
+      level: 550
+      category: "organization"
+      scope: "self"
+      applicableOrgTypes: ["HOUSING_ASSOCIATION"]
+      permissions:
+        - "TENANT_READ"
+        - "TENANT_COMMUNICATE"
+        - "DOCUMENT_READ"
+        - "DOCUMENT_UPLOAD"
+        - "TASK_MANAGE"
+        - "MAINTENANCE_READ"
+        - "NOTIFICATION_READ"
+        - "DASHBOARD_VIEW"
+
+    # ---------- CORP: Corporate ----------
+
+    CFO:
+      description: "Chief Financial Officer — full financial control, payroll approval (CORP)"
+      level: 890
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["CORPORATE"]
+      permissions:
+        - "ORGANIZATION_READ"
+        - "ORGANIZATION_UPDATE"
+        - "PAYMENT_MANAGE"
+        - "INVOICE_MANAGE"
+        - "PAYROLL_MANAGE"
+        - "EMPLOYEE_READ"
+        - "EMPLOYEE_LIST"
+        - "REPORT_GENERATE"
+        - "REPORT_READ"
+        - "REPORT_EXPORT"
+        - "DASHBOARD_READ"
+        - "DASHBOARD_VIEW"
+        - "AUDIT_LOG_READ"
+        - "DOCUMENT_READ"
+
+    HR_MANAGER:
+      description: "Human Resources manager — employee lifecycle and payroll management (CORP/PMC)"
+      level: 820
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["CORPORATE", "PROPERTY_MANAGEMENT_COMPANY"]
+      permissions:
+        - "EMPLOYEE_MANAGE"
+        - "PAYROLL_MANAGE"
+        - "USER_READ"
+        - "USER_LIST"
+        - "USER_INVITE"
+        - "REPORT_READ"
+        - "REPORT_GENERATE"
+        - "DASHBOARD_READ"
+        - "DOCUMENT_READ"
+        - "NOTIFICATION_READ"
+      explicitDenials:
+        - "ORGANIZATION_DELETE"
+        - "PROPERTY_DELETE"
+
+    OPERATIONS_MANAGER:
+      description: "Operations manager — property and maintenance operations (CORP/PMC)"
+      level: 780
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["CORPORATE", "PROPERTY_MANAGEMENT_COMPANY"]
+      permissions:
+        - "PROPERTY_MANAGE"
+        - "MAINTENANCE_MANAGE"
+        - "VENDOR_MANAGE"
+        - "TASK_MANAGE"
+        - "LEASE_READ"
+        - "LEASE_LIST"
+        - "TENANT_READ"
+        - "TENANT_LIST"
+        - "EMPLOYEE_READ"
+        - "EMPLOYEE_LIST"
+        - "PAYMENT_READ"
+        - "PAYMENT_LIST"
+        - "REPORT_READ"
+        - "DASHBOARD_READ"
+        - "DOCUMENT_MANAGE"
+        - "NOTIFICATION_READ"
+      explicitDenials:
+        - "PAYROLL_MANAGE"
+        - "ORGANIZATION_DELETE"
+
+    # ---------- PMC: Property Management Company ----------
+
+    OWNER_RELATIONS:
+      description: "Owner relations specialist — manages the owner portal and property owner reporting (PMC)"
+      level: 700
+      category: "organization"
+      scope: "organization"
+      applicableOrgTypes: ["PROPERTY_MANAGEMENT_COMPANY"]
+      permissions:
+        - "PROPERTY_READ"
+        - "PROPERTY_LIST"
+        - "LEASE_READ"
+        - "LEASE_LIST"
+        - "PAYMENT_READ"
+        - "PAYMENT_LIST"
+        - "INVOICE_READ"
+        - "INVOICE_LIST"
+        - "INVOICE_SEND"
+        - "REPORT_READ"
+        - "REPORT_GENERATE"
+        - "REPORT_EXPORT"
+        - "DOCUMENT_READ"
+        - "NOTIFICATION_READ"
+        - "DASHBOARD_VIEW"
+      explicitDenials:
+        - "EMPLOYEE_MANAGE"
+        - "PAYROLL_MANAGE"
+        - "TENANT_CREATE"
+        - "TENANT_DELETE"
 
     READ_ONLY:
       description: "Read-only observer / auditor"

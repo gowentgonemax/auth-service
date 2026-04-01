@@ -75,6 +75,32 @@ public class RbacService {
     }
 
     /**
+     * Collects explicit denials across a set of role names.
+     * Permissions in this set MUST be removed from the final JWT permission set,
+     * even if granted via inheritance or custom roles.
+     *
+     * @param roles the role names assigned to the user
+     * @return union of all explicitDenials for the given roles (from rbac.yml)
+     */
+    public Set<String> getExplicitDenialsForRoles(Set<String> roles) {
+        if (roles == null || roles.isEmpty() || rbacConfig.getRoles() == null) {
+            return Collections.emptySet();
+        }
+        Set<String> denied = new LinkedHashSet<>();
+        for (String role : roles) {
+            RbacConfig.RoleConfig cfg = rbacConfig.getRoles().get(role);
+            if (cfg != null && cfg.getExplicitDenials() != null) {
+                cfg.getExplicitDenials().stream()
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .forEach(denied::add);
+            }
+        }
+        return Collections.unmodifiableSet(denied);
+    }
+
+    /**
      * Get all permissions for a role including inheritance and wildcard expansion.
      * This expands permission hierarchies for actual permission checks.
      */

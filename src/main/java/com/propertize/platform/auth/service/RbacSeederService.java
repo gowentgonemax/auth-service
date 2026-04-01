@@ -69,6 +69,8 @@ public class RbacSeederService implements ApplicationRunner {
                 role.setCategory(cfg.getCategory() != null ? cfg.getCategory() : "");
                 role.setPermissions(permsCsv);
                 role.setInheritsFrom(inheritsFrom);
+                role.setApplicableOrgTypes(buildCsv(cfg.getApplicableOrgTypes()));
+                role.setExplicitDenials(buildCsv(cfg.getExplicitDenials()));
                 role.setUpdatedAt(LocalDateTime.now());
                 rbacRoleRepository.save(role);
                 updated++;
@@ -82,6 +84,8 @@ public class RbacSeederService implements ApplicationRunner {
                         .category(cfg.getCategory() != null ? cfg.getCategory() : "")
                         .permissions(permsCsv)
                         .inheritsFrom(inheritsFrom)
+                        .applicableOrgTypes(buildCsv(cfg.getApplicableOrgTypes()))
+                        .explicitDenials(buildCsv(cfg.getExplicitDenials()))
                         .isSystem(true)
                         .organizationId(null)
                         .isActive(true)
@@ -96,10 +100,14 @@ public class RbacSeederService implements ApplicationRunner {
     }
 
     private String buildPermissionCsv(RbacConfig.RoleConfig cfg) {
-        if (cfg.getPermissions() == null || cfg.getPermissions().isEmpty()) {
+        return buildCsv(cfg.getPermissions());
+    }
+
+    private String buildCsv(java.util.List<String> items) {
+        if (items == null || items.isEmpty()) {
             return "";
         }
-        return String.join(",", cfg.getPermissions());
+        return String.join(",", items);
     }
 
     private String buildInheritsFrom(RbacConfig.RoleConfig cfg) {

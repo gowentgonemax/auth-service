@@ -1,6 +1,7 @@
 package com.propertize.platform.auth.service;
 
 import com.propertize.platform.auth.dto.CustomRoleRequest;
+import com.propertize.platform.auth.config.RbacConfig;
 import com.propertize.platform.auth.entity.CustomRole;
 import com.propertize.platform.auth.entity.RbacRole;
 import com.propertize.platform.auth.entity.User;
@@ -13,9 +14,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -52,6 +55,7 @@ public class CustomRoleService {
     private final RbacService rbacService;
     private final RbacRoleRepository rbacRoleRepository;
     private final UserCustomRoleAssignmentRepository userCustomRoleAssignmentRepository;
+    private final RbacConfig rbacConfig;
 
     /**
      * Create a new custom role for an organization.
@@ -76,6 +80,14 @@ public class CustomRoleService {
     public CustomRole createCustomRole(CustomRoleRequest request, Long creatorUserId) {
         log.info("Creating custom role '{}' for org {} by user {}",
                 request.getRoleName(), request.getOrganizationId(), creatorUserId);
+
+        // ── P4: allowRuntimeRoleCreation feature flag ───────────────────────
+        if (rbacConfig.getCore() != null
+                && Boolean.FALSE.equals(rbacConfig.getCore().getAllowRuntimeRoleCreation())) {
+            throw new IllegalStateException(
+                    "Custom role creation is disabled by platform configuration (allowRuntimeRoleCreation=false). " +
+                            "Contact a platform administrator to enable this feature.");
+        }
 
         // Uniqueness check within organization
         if (customRoleRepository.existsByRoleNameAndOrganizationIdAndIsActiveTrue(
@@ -353,7 +365,14 @@ public class CustomRoleService {
     /**
      * Assign a custom role to a user.
      *
-     * @param roleId         the {@code rbac_roles} ID of the custom role
+     * <p>
+     * Accepts the {@code custom_roles.id} (returned by the CRUD endpoints) and
+     * resolves the corresponding {@code rbac_roles} entry via role-name + org-id
+     * lookup. This bridges the legacy {@code CustomRole} entity and the unified
+     * {@code RbacRole} catalog so that clients always work with consistent IDs.
+     * </p>
+     *
+     * @param customRoleId   the {@code custom_roles.id} as returned by the CRUD API
      * @param targetUserId   numeric ID of the user receiving the role
      * @param orgId          the organisation context
      * @param assignerUserId numeric ID of the user performing the assignment
@@ -362,19 +381,32 @@ public class CustomRoleService {
      *                                  already exists
      */
     @Transactional
-    public UserCustomRoleAssignment assignCustomRole(Long roleId, Long targetUserId, Long orgId, Long assignerUserId) {
+    public UserCustomRoleAssignment assignCustomRole(Long customRoleId, Long targetUserId, Long orgId,
+            Long assignerUserId) {
         log.info("Assigning custom role id={} to user {} in org {} by {}",
-                roleId, targetUserId, orgId, assignerUserId);
+                customRoleId, targetUserId, orgId, assignerUserId);
 
-        RbacRole role = rbacRoleRepository.findById(roleId)
-                .filter(RbacRole::isActive)
-                .orElseThrow(() -> new IllegalArgumentException("Custom role not found: " + roleId));
+        // Step 1: resolve by custom_roles.id (the ID clients see in list/get responses)
+        CustomRole customRole = customRoleRepository.findById(customRoleId)
+                .filter(CustomRole::isActive)
+                .orElseThrow(() -> new IllegalArgumentException("Custom role not found: " + customRoleId));
+
+        // Step 2: find the matching RbacRole by name + org (mirrored during
+        // createCustomRole)
+        RbacRole role = rbacRoleRepository
+                .findByRoleNameAndOrganizationIdAndIsActiveTrue(customRole.getRoleName(),
+                        customRole.getOrganizationId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "RBAC role entry not found for custom role '" + customRole.getRoleName()
+                                + "' in org " + customRole.getOrganizationId()
+                                + ". Ensure mirrorToRbacRoles ran successfully during role creation."));
 
         if (role.isSystem()) {
             throw new IllegalArgumentException("System roles cannot be assigned via this endpoint");
         }
 
-        if (userCustomRoleAssignmentRepository.existsByUserIdAndRbacRoleIdAndIsActiveTrue(targetUserId, roleId)) {
+        if (userCustomRoleAssignmentRepository.existsByUserIdAndRbacRoleIdAndIsActiveTrue(targetUserId,
+                role.getId())) {
             throw new IllegalArgumentException(
                     "User " + targetUserId + " already has role " + role.getRoleName());
         }
@@ -393,21 +425,38 @@ public class CustomRoleService {
     /**
      * Revoke a custom role assignment from a user (soft-delete).
      *
-     * @param roleId       the {@code rbac_roles} ID of the custom role
+     * <p>
+     * Accepts the {@code custom_roles.id} and resolves the {@code rbac_roles}
+     * entry via role-name + org-id so the ID space is consistent with the
+     * CRUD endpoints.
+     * </p>
+     *
+     * @param customRoleId the {@code custom_roles.id} as returned by the CRUD API
      * @param targetUserId numeric ID of the user whose role is being revoked
      */
     @Transactional
-    public void unassignCustomRole(Long roleId, Long targetUserId) {
-        log.info("Unassigning custom role id={} from user {}", roleId, targetUserId);
+    public void unassignCustomRole(Long customRoleId, Long targetUserId) {
+        log.info("Unassigning custom role id={} from user {}", customRoleId, targetUserId);
+
+        // Resolve custom_roles.id → rbac_roles.id
+        CustomRole customRole = customRoleRepository.findById(customRoleId)
+                .filter(CustomRole::isActive)
+                .orElseThrow(() -> new IllegalArgumentException("Custom role not found: " + customRoleId));
+
+        RbacRole rbacRole = rbacRoleRepository
+                .findByRoleNameAndOrganizationIdAndIsActiveTrue(customRole.getRoleName(),
+                        customRole.getOrganizationId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "RBAC role entry not found for custom role '" + customRole.getRoleName() + "'"));
 
         UserCustomRoleAssignment assignment = userCustomRoleAssignmentRepository
-                .findByUserIdAndRbacRoleIdAndIsActiveTrue(targetUserId, roleId)
+                .findByUserIdAndRbacRoleIdAndIsActiveTrue(targetUserId, rbacRole.getId())
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "Assignment not found for user " + targetUserId + " / role " + roleId));
+                        "Assignment not found for user " + targetUserId + " / role " + customRole.getRoleName()));
 
         assignment.setActive(false);
         userCustomRoleAssignmentRepository.save(assignment);
-        log.info("Custom role id={} revoked from user {}", roleId, targetUserId);
+        log.info("Custom role '{}' revoked from user {}", customRole.getRoleName(), targetUserId);
     }
 
     /**
@@ -535,5 +584,18 @@ public class CustomRoleService {
                 })
                 .max(Integer::compareTo)
                 .orElse(0);
+    }
+
+    /**
+     * Nightly sweep: deactivate all custom role assignments whose TTL has lapsed.
+     * Runs at 03:00 every day. Uses a bulk UPDATE for efficiency.
+     */
+    @Scheduled(cron = "0 0 3 * * ?")
+    @Transactional
+    public void expireCustomRoleAssignments() {
+        int expired = userCustomRoleAssignmentRepository.deactivateExpiredAssignments(LocalDateTime.now());
+        if (expired > 0) {
+            log.info("Expired {} custom role assignment(s) with lapsed TTL", expired);
+        }
     }
 }
